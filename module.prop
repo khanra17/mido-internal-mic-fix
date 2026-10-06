@@ -1,0 +1,6 @@
+id=mido_internal_mic_fix
+name=mido Internal Mic Fix
+version=v1.0.0
+versionCode=1
+author=khanra17
+description=Restores built-in recording on the tested Redmi Note 4 (mido) vendor layout using the working speakerphone mic path. Playback routing is unchanged.
