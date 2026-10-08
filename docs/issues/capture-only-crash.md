@@ -39,10 +39,15 @@ mido Apps-server streaming as requirements for this latest failure.
 - Disabled development autostart and changed the GitHub rc1 release to draft.
   Stable v1.0.0 remains available. No new replacement ZIP was installed/published.
 
-## Next work (offline)
+## Offline follow-up
 
-Trace the BPF failure and text overwrite in matching libnetdbpf/libbpf_android,
-compare the failing Java/native call boundary, then re-audit the audio-policy IPC
-path. The next live experiment, if justified, must separately isolate policy
-registration from native patch transport; do not repeat the same crash trial or
-add automatic daemon/service restart loops. Bluetooth/call validation is paused.
+[Matching-ROM ABI/wire audit](offline-abi-audit.md) found no signature, layout or
+serialization mismatch explaining the crashes. BPF disassembly identifies damaged
+callback captures; matching StringPrintf/Status helpers use compatible layouts.
+The first corrupting operation remains unresolved. This is not a fixed build.
+
+The missing incoming-receiver-only baseline WITHOUT the controller should precede
+another native trial. The earlier server-only baseline did not cover that path.
+If justified afterward, separately isolate policy registration from patch transport;
+do not repeat the same crash trial or add daemon/service restart loops.
+Bluetooth/call validation is paused.
