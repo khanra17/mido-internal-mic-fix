@@ -264,28 +264,47 @@ public:
         return NO_ERROR;
     }
 
-    void fallback() {
-        // Remove virtual input first: existing recorders can return to repaired mic.
+    status_t fallback() {
+        status_t result = NO_ERROR;
+        // Preserve failed resource handles so final cleanup can retry. Never
+        // resume routing after a teardown error or report false success.
         if (microphoneConnected) {
-            (void)connect(AUDIO_DEVICE_IN_REMOTE_SUBMIX, microphone.address, false);
-            microphoneConnected = false;
+            const status_t status = connect(AUDIO_DEVICE_IN_REMOTE_SUBMIX, microphone.address, false);
+            if (status == NO_ERROR) microphoneConnected = false;
+            else result = status;
         }
         if (patch != AUDIO_PATCH_HANDLE_NONE) {
-            fprintf(stderr, "PATCH_RELEASE handle=%d status=%d\n", patch,
-                     AudioSystem::releaseAudioPatch(patch));
-            patch = AUDIO_PATCH_HANDLE_NONE;
+            const status_t status = AudioSystem::releaseAudioPatch(patch);
+            fprintf(stderr, "PATCH_RELEASE handle=%d status=%d\n", patch, status);
+            if (status == NO_ERROR) patch = AUDIO_PATCH_HANDLE_NONE;
+            else if (result == NO_ERROR) result = status;
         }
-        (void)unregisterPolicy(service, microphone);
-        fprintf(stderr, "UPPER_MIC_FALLBACK\n");
+        const status_t status = unregisterPolicy(service, microphone);
+        if (status != NO_ERROR && result == NO_ERROR) result = status;
+        if (result == NO_ERROR) fprintf(stderr, "UPPER_MIC_FALLBACK\n");
+        else fprintf(stderr, "FALLBACK_ERROR status=%d\n", result);
+        return result;
     }
-    void cleanup() {
-        if (!service) return;
-        fallback();
-        if (dummyConnected) (void)connect(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, dummy.address, false);
-        if (sourceConnected) (void)connect(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, source.address, false);
-        (void)unregisterPolicy(service, dummy);
-        (void)unregisterPolicy(service, source);
-        fprintf(stderr, "CLEANUP_COMPLETE\n");
+    status_t cleanup() {
+        if (!service) return NO_ERROR;
+        status_t result = fallback();
+        if (dummyConnected) {
+            const status_t status = connect(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, dummy.address, false);
+            if (status == NO_ERROR) dummyConnected = false;
+            else if (result == NO_ERROR) result = status;
+        }
+        if (sourceConnected) {
+            const status_t status = connect(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, source.address, false);
+            if (status == NO_ERROR) sourceConnected = false;
+            else if (result == NO_ERROR) result = status;
+        }
+        for (Policy* policy : {&dummy, &source}) {
+            const status_t status = unregisterPolicy(service, *policy);
+            if (status != NO_ERROR && result == NO_ERROR) result = status;
+        }
+        if (result == NO_ERROR) fprintf(stderr, "CLEANUP_COMPLETE\n");
+        else fprintf(stderr, "CLEANUP_INCOMPLETE status=%d; Binder death will remove owned policies\n", result);
+        return result;
     }
 };
 }
@@ -334,7 +353,7 @@ int main(int argc, char** argv) {
         if (desired && (!active || remote != wantRemote)) {
             status = bridge.route(wantRemote);
             active = status == NO_ERROR; remote = wantRemote;
-        } else if (!desired && active) { bridge.fallback(); active = false; }
+        } else if (!desired && active) { status = bridge.fallback(); active = false; }
         if (status != NO_ERROR || stopping) break;
         pollfd event{wakeFd, POLLIN, 0};
         const int waitMs = deadline ? static_cast<int>(deadline - monotonicMs()) : -1;
@@ -344,7 +363,8 @@ int main(int argc, char** argv) {
         while (read(wakeFd, &count, sizeof(count)) == sizeof(count)) {}
     }
     if (status != NO_ERROR) fprintf(stderr, "ERROR status=%d; restoring upper mic\n", status);
-    bridge.cleanup();
+    const status_t cleanupStatus = bridge.cleanup();
+    if (status == NO_ERROR) status = cleanupStatus;
     // Do not destroy Binder globals under still-running Binder pool threads.
     // Kernel closes all descriptors/Binder refs; policies have been removed above.
     _exit(status == NO_ERROR ? 0 : 1);

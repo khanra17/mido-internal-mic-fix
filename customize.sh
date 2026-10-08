@@ -36,6 +36,8 @@ set_perm "$MODPATH/uninstall.sh" 0 0 0755
 set_perm "$MODPATH/bin/arm64-v8a/mido-relay-mic" 0 0 0755
 set_perm "$MODPATH/mixer_paths_mtp.xml" 0 0 0644 u:object_r:vendor_configs_file:s0
 ui_print "- Original mixer repair preserved; playback XML paths unchanged"
-ui_print "- Native AudioRelay controller is disabled in this development build"
+ui_print "- EXPERIMENTAL: native AudioRelay controller enabled after reboot"
+ui_print "- Crash stability, Telegram and disconnect fallback are unverified"
+ui_print "- Disable this module and reboot if audio or Android becomes unstable"
 ui_print "- No LSPosed, APK, metamodule, or SELinux relaxation"
 ui_print "- Reboot to apply"

@@ -1,7 +1,9 @@
 # AudioRelay native-controller release gate
 
-This branch is development-only. `RELAY_ENABLED=0`; no native autostart release.
-Original installed mixer module/hash remains unchanged.
+**v2.0.0-rc1 is an experimental pre-release with `RELAY_ENABLED=1`, explicitly
+requested by the user for first-install/reboot/device testing.** This overrides
+only the earlier publication/autostart gate, not the remaining validation results.
+The stable v1.0.0 release is unchanged. No module was installed remotely by us.
 
 ## Confirmed
 
@@ -13,7 +15,7 @@ Original installed mixer module/hash remains unchanged.
 - ABI-pinned native executable builds with warnings as errors; about 25 KiB stripped.
 - Build needs no redistributed device libraries: link-only exported-symbol stubs suffice.
 
-## Investigate before retry
+## Known risk to disclose before install/retry
 
 2026-10-08, approximately 11:12 IST: system_server died with SIGSEGV in
 `art::jit::JitCodeCache::SweepRootTables` during GC. Native capture controller
@@ -28,11 +30,13 @@ has no matching HDMI service and `mHdmiSystemAudioSupported` remained false.
 Correct ordinals and mandatory framework/library checksum guard are now in code.
 No more unverified Binder transactions or global service restarts during testing.
 
-## Required temporary on-device checks
+## Required on-device checks before stable promotion
 
-1. Controlled retry after crash review; prove sustained PCM on exact private source.
-2. Enable C++ virtual input only after source evidence, then prove Gboard listens to
-   working phone, not mido; confirm actual addressed input and unsilenced state.
+1. User installs rc1 in KernelSU and reboots with rollback available. Test original
+   upper mic with AudioRelay disconnected; verify startup log and guards.
+2. Connect a proven working-phone MICROPHONE stream. Rc1 enables the private input
+   when the receiver mix starts; prove Gboard listens to the working phone, not mido,
+   and verify actual addressed input, sustained PCM and unsilenced state.
 3. Telegram call to a separate recipient: only working-phone mic heard.
 4. Disconnect during ongoing typing/recording/call: upper-mic fallback; reconnect:
    remote mic returns without restarting the recording app, or document limitations.
@@ -41,7 +45,18 @@ No more unverified Binder transactions or global service restarts during testing
    original hash/mount and enforcing SELinux preserved.
 7. Concurrent mido playback → working phone stream: no caller/playback-to-mic feedback.
 8. Measure idle RAM/CPU/wakeups and active transport; compare latency/buffering.
-9. Only after these checks: enable default autostart, review source/build, run CI,
-   merge, tag and publish release ZIP/checksum. User performs first install/reboot.
+9. Only after these checks: review findings/source/build, rerun CI and promote a
+   stable release. Rc1 already enables autostart at the user's request; it is not
+   evidence of passed native runtime tests.
+
+## Rc1 preparation
+
+- Removed all our temporary scripts, JARs, binaries, log directory and native lock
+  from the phone; diagnostics archived on the PC only. No prototype policies or
+  processes remain. Original mixer hash/mount unchanged; SELinux enforcing.
+- Native cleanup now preserves failures/handles, propagates errors and prevents
+  further activation after teardown failure. Uninstall waits for graceful exit.
+- Packager rejects malformed, wrong-architecture or non-executable ELF files.
+- Native binary is about 25 KiB; CPU/RAM/battery figures remain unmeasured.
 
 No PCM samples are saved. Diagnostics contain configuration, counters and levels.

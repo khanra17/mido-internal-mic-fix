@@ -1,12 +1,14 @@
 # mido Mic Fix + AudioRelay Input
 
 KernelSU microphone repair for the tested Redmi Note 4 (`mido`) Android 10
-vendor layout, with a **native AudioRelay-input controller under development**.
+vendor layout, with an **experimental native AudioRelay-input controller**.
 
-> **Development branch—not a validated AudioRelay release.** The native controller
-> is disabled by default (`RELAY_ENABLED=0`). Do not enable it at boot or distribute
-> this build as a working remote-microphone module. The existing [v1.0.0 release](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v1.0.0)
-> remains the supported upper-mic-only build.
+> **v2.0.0-rc1 is a pre-release for user-requested install/reboot testing.** Native
+> autostart is enabled (`RELAY_ENABLED=1`). An earlier test coincided with an Android
+> `system_server` ART/JIT crash; the cause is unresolved. Native remote delivery,
+> Telegram and disconnect fallback are not validated. Have KernelSU safe mode /
+> rollback available. The stable [v1.0.0 release](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v1.0.0)
+> remains available for upper-mic-only use.
 
 ## Original microphone repair—preserved
 
@@ -89,20 +91,37 @@ its input, patch and policies. Crash/fallback behavior still needs device tests.
 - C++ remote typing, Telegram, ongoing-recording disconnect/reconnect, simultaneous
   outgoing streaming, latency, idle overhead and first-flash boot behavior: **pending**.
 
-A downloadable remote-input release will only be published after applicable tests
-pass. See [docs/VALIDATION.md](docs/VALIDATION.md).
+At the user's explicit request, rc1 is downloadable for those remaining device
+checks; this does **not** count them as passed. Stable release promotion remains
+blocked. See [docs/VALIDATION.md](docs/VALIDATION.md).
 
 ## Installation / rollback
 
-Use the supported v1.0.0 ZIP in KernelSU Manager for the original repair; reboot
-and test built-in recording/Gboard. Do not flash in recovery or on unrelated devices.
-Disable competing mixer-file modules. Disabling/removing this module and rebooting
-restores untouched vendor files. KernelSU safe mode can disable a broken module.
+1. Download the ZIP + checksum from [v2.0.0-rc1](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v2.0.0-rc1).
+2. Install in KernelSU Manager and reboot. **An in-place update is supported**;
+   uninstalling the old module is unnecessary because the module ID is unchanged.
+   If removing it first, reboot after removal, then install rc1 and reboot again.
+3. First test upper-mic input with AudioRelay disconnected. Then select microphone
+   capture on the working phone, connect mido's receiver and test remote input.
+   Reconnect once if AudioRelay was already playing before the daemon registered.
+4. Repeat Telegram, active-recording disconnect/reconnect, and outgoing streaming
+   tests one at a time. Report what works and what fails.
+
+Do not flash in recovery or on unrelated devices. Disable competing mixer-file
+modules. If Android/audio becomes unstable, **disable/remove rc1 in KernelSU and
+reboot**; use KernelSU safe mode if normal boot is unavailable. Keep v1.0.0 for
+rollback. Set `RELAY_ENABLED=0` in the module's `relay.conf` and reboot if you want
+only the original mic repair. No prototype JARs/scripts are needed on the phone.
+
+The daemon does not repeatedly restart itself or Android services after failure.
+If it exits, `relay.log` under `/data/adb/modules/mido_internal_mic_fix/` contains
+its startup/cleanup status. Provide that log when reporting failures; do not change
+ABI guards or globally relax privacy/SELinux to make it start.
 Bluetooth media does not itself require its mic, but apps explicitly requesting
 Bluetooth hands-free/SCO may still use that route. The earpiece hardware fault is
 not repaired. This is a userspace KernelSU module, **not a replacement kernel image**.
 
-## Build the development ZIP
+## Build the experimental ZIP
 
 Python, POSIX `awk`, and Android NDK **r27d / 27.3.13750724** are required:
 

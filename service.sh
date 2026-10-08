@@ -18,8 +18,8 @@ refresh_hal() {
 }
 refresh_hal
 
-# Development safety gate: do not activate the unvalidated native path at boot.
-# No daemon or ongoing shell loop is started when this is disabled.
+# Opt-out: relay.conf enables the experimental controller for this prerelease.
+# No daemon or ongoing shell loop is started when disabled.
 RELAY_ENABLED=0
 [ -f "$MODDIR/relay.conf" ] && . "$MODDIR/relay.conf"
 [ "$RELAY_ENABLED" = 1 ] || exit 0

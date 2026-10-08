@@ -1,6 +1,6 @@
 id=mido_internal_mic_fix
-name=mido Mic Fix + AudioRelay (Development)
-version=v2.0.0-dev1
-versionCode=2
+name=mido Mic Fix + AudioRelay (Experimental)
+version=v2.0.0-rc1
+versionCode=3
 author=khanra17
-description=Preserves the verified mido upper-mic repair. Native UID-isolated AudioRelay microphone routing is under development and disabled pending validation.
+description=EXPERIMENTAL: preserves mido upper-mic repair and enables native UID-isolated AudioRelay microphone routing. Call/fallback and crash stability remain unverified.

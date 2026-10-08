@@ -135,6 +135,30 @@ class BuildTests(unittest.TestCase):
                     self.assertFalse(entry.filename.startswith(("/", "META-INF/")))
                     self.assertNotIn("..", Path(entry.filename).parts)
 
+    def test_rejects_invalid_native_executables(self):
+        import struct
+        valid = (ROOT / self.builder.BINARY).read_bytes()
+        self.builder.validate_native(valid)
+        malformed = [valid[:8]]
+        wrong_arch = bytearray(valid)
+        struct.pack_into('<H', wrong_arch, 18, 62)  # x86-64, not AArch64.
+        malformed.append(wrong_arch)
+        no_entry = bytearray(valid)
+        struct.pack_into('<Q', no_entry, 24, 0)
+        malformed.append(no_entry)
+        shared_library = bytearray(valid)
+        phoff = struct.unpack_from('<Q', valid, 32)[0]
+        phsize, phcount = struct.unpack_from('<HH', valid, 54)
+        for index in range(phcount):
+            offset = phoff + index * phsize
+            if struct.unpack_from('<I', valid, offset)[0] == 3:
+                struct.pack_into('<I', shared_library, offset, 0)  # No PT_INTERP.
+        malformed.append(shared_library)
+        for data in malformed:
+            with self.subTest(size=len(data)):
+                with self.assertRaises(ValueError):
+                    self.builder.validate_native(data)
+
     def test_module_properties_and_integrity_guards(self):
         props = dict(line.split("=", 1) for line in
                      (ROOT / "module.prop").read_text().splitlines() if line)

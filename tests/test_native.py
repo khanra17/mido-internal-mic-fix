@@ -42,10 +42,20 @@ class NativeSafetyTests(unittest.TestCase):
         self.assertTrue(all(kind in 'TWDBRV' for symbols in manifest.values()
                             for kind in symbols.values()))
 
-    def test_unvalidated_feature_is_disabled(self):
+    def test_experimental_autostart_is_explicit(self):
         config = (ROOT / 'relay.conf').read_text()
-        self.assertIn('RELAY_ENABLED=0', config)
-        self.assertNotIn('RELAY_ENABLED=1', config)
+        self.assertIn('RELAY_ENABLED=1', config)
+        self.assertIn('EXPERIMENTAL', config)
+        props = (ROOT / 'module.prop').read_text()
+        self.assertIn('version=v2.0.0-rc1', props)
+        self.assertIn('EXPERIMENTAL', props)
+
+    def test_cleanup_errors_are_propagated(self):
+        source = (ROOT / 'native/relay_mic.cpp').read_text()
+        self.assertIn('status = bridge.fallback()', source)
+        self.assertIn('const status_t cleanupStatus = bridge.cleanup()', source)
+        self.assertIn('if (status == NO_ERROR) patch = AUDIO_PATCH_HANDLE_NONE', source)
+        self.assertIn('CLEANUP_INCOMPLETE', source)
 
 
 if __name__ == '__main__':
