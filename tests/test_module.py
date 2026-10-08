@@ -125,7 +125,11 @@ class BuildTests(unittest.TestCase):
                 self.assertEqual(bundle.read("skip_mount"), b"")
                 for entry in bundle.infolist():
                     data = bundle.read(entry)
-                    self.assertNotIn(b"\r", data)
+                    if entry.filename == self.builder.BINARY:
+                        self.assertEqual(data, (ROOT / entry.filename).read_bytes())
+                        self.assertTrue(data.startswith(b"\x7fELF"))
+                    else:
+                        self.assertNotIn(b"\r", data)
                     expected = 0o755 if entry.filename in self.builder.EXECUTABLES else 0o644
                     self.assertEqual(stat.S_IMODE(entry.external_attr >> 16), expected)
                     self.assertFalse(entry.filename.startswith(("/", "META-INF/")))

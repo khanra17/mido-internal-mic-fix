@@ -21,6 +21,12 @@ jobs:
           for script in *.sh; do
             sh -n "$script"
           done
+      - name: Build native controller
+        env:
+          NDK_VERSION: 27.3.13750724
+        run: |
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$NDK_VERSION"
+          python tools/build_native.py --ndk "$ANDROID_HOME/ndk/$NDK_VERSION"
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Build release ZIP

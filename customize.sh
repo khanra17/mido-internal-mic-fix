@@ -32,7 +32,10 @@ mv "$MODPATH/mixer_paths_mtp.xml.tmp" "$MODPATH/mixer_paths_mtp.xml" ||
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm "$MODPATH/post-fs-data.sh" 0 0 0755
 set_perm "$MODPATH/service.sh" 0 0 0755
+set_perm "$MODPATH/uninstall.sh" 0 0 0755
+set_perm "$MODPATH/bin/arm64-v8a/mido-relay-mic" 0 0 0755
 set_perm "$MODPATH/mixer_paths_mtp.xml" 0 0 0644 u:object_r:vendor_configs_file:s0
-ui_print "- Playback paths are unchanged"
-ui_print "- No metamodule or background audio daemon is required"
+ui_print "- Original mixer repair preserved; playback XML paths unchanged"
+ui_print "- Native AudioRelay controller is disabled in this development build"
+ui_print "- No LSPosed, APK, metamodule, or SELinux relaxation"
 ui_print "- Reboot to apply"

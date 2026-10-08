@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
-"""Build a deterministic KernelSU ZIP using only the Python standard library."""
+"""Package a deterministic KernelSU ZIP after tools/build_native.py."""
 from __future__ import annotations
 
 import argparse
@@ -13,9 +13,11 @@ ROOT = Path(__file__).resolve().parents[1]
 PAYLOAD = (
     "module.prop", "customize.sh", "common.sh", "patch-mixer.awk",
     "post-fs-data.sh", "service.sh", "skip_mount",
-    "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md",
+    "LICENSE", "THIRD_PARTY_NOTICES.md", "README.md", "relay.conf",
+    "uninstall.sh", "bin/arm64-v8a/mido-relay-mic",
 )
-EXECUTABLES = {"customize.sh", "post-fs-data.sh", "service.sh"}
+BINARY = "bin/arm64-v8a/mido-relay-mic"
+EXECUTABLES = {"customize.sh", "post-fs-data.sh", "service.sh", "uninstall.sh", BINARY}
 
 
 def build(destination: Path) -> Path:
@@ -29,7 +31,11 @@ def build(destination: Path) -> Path:
     with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED,
                          compresslevel=9) as bundle:
         for name in PAYLOAD:
-            data = (ROOT / name).read_bytes().replace(b"\r\n", b"\n")
+            data = (ROOT / name).read_bytes()
+            if name != BINARY:
+                data = data.replace(b"\r\n", b"\n")
+            elif not data.startswith(b"\x7fELF"):
+                raise ValueError("Native controller must be a built ARM64 ELF executable")
             entry = zipfile.ZipInfo(name, date_time=(2000, 1, 1, 0, 0, 0))
             entry.create_system = 3
             mode = 0o755 if name in EXECUTABLES else 0o644

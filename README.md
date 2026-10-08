@@ -1,79 +1,126 @@
-# mido Internal Mic Fix
+# mido Mic Fix + AudioRelay Input
 
-A small KernelSU module for the Redmi Note 4 (`mido`) vendor audio layout.
+KernelSU microphone repair for the tested Redmi Note 4 (`mido`) Android 10
+vendor layout, with a **native AudioRelay-input controller under development**.
 
-## Fix
+> **Development branch—not a validated AudioRelay release.** The native controller
+> is disabled by default (`RELAY_ENABLED=0`). Do not enable it at boot or distribute
+> this build as a working remote-microphone module. The existing [v1.0.0 release](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v1.0.0)
+> remains the supported upper-mic-only build.
 
-Normal built-in recording is routed through the microphone mixer settings that
-worked in a speakerphone call: two input channels, with the secondary mic first.
-This restored internal recording and Gboard voice typing on the tested phone.
+## Original microphone repair—preserved
 
-Only the `handset-mic` block in `/vendor/etc/mixer_paths_mtp.xml` is replaced.
-The installer generates the file from the phone's own verified vendor XML;
-speaker, earpiece, headphone and Bluetooth **output** paths are unchanged.
+Normal built-in recording uses the settings that worked in a speakerphone call:
+two input channels, secondary mic first. This restored internal recording and
+Gboard voice typing on the tested phone.
 
-The module uses a single systemless bind mount during `post-fs-data`. A one-shot
-late-start hook refreshes the existing audio HAL if it is already running and the
-phone is not in a call. There is no persistent service, polling, audio capture,
-framework hook or SELinux policy relaxation. No mounting metamodule is required.
+Only `handset-mic` in `/vendor/etc/mixer_paths_mtp.xml` is replaced. The installer
+generates the replacement from the phone's verified XML. Speaker, earpiece,
+headphone and Bluetooth output paths remain byte-for-byte unchanged. The module
+ID remains `mido_internal_mic_fix`, allowing an eventual in-place update.
 
-## Tested on
+A single systemless bind mount runs during `post-fs-data`. The original boot-only
+HAL refresh is preserved, guarded against an active call. No mounting metamodule
+or SELinux relaxation is used. Unknown vendor layouts are rejected.
 
-- Redmi Note 4 / `mido`, Qualcomm msm8953
-- qassa Android 10: `qassa_Sisu-v2.4_beta_1.s-byNgantu-mido-20260204-0736`
-- KernelSU 3.1.0
-- Internal recording and Gboard voice typing
-- Bluetooth media connected, with recording still using the phone mic
+## Intended AudioRelay behavior
 
-This is a device-specific workaround, not a universal microphone repair. The
-installer requires Android 10 and the exact tested stock mixer hash. It refuses
-unknown configurations instead of replacing them blindly. If the vendor layout
-changes after a ROM update, the boot hook does not mount the replacement.
+- **Receiver playing:** route only AudioRelay's received microphone stream into
+  ordinary microphone/voice-recognition/voice-communication inputs.
+- **Receiver stopped/disconnected:** remove that virtual input and keep the
+  original repaired upper-mic routing. No transport remains processing silence.
+- **Never** capture mido's mixed speaker/caller output for microphone substitution.
+- Do not match `REMOTE_SUBMIX` recording source 8, preserving the separate outgoing
+  playback-capture route for later full-duplex testing.
 
-The working mixer change was tested live. The packaged installer and hooks were
-tested without installing a boot-time module; the first flash/reboot is still a
-separate validation step.
+Android sees AudioRelay's received stream as its app's decoded media track. The
+controller isolates **that package UID + media usage**, not global playback.
+It cannot infer whether the sending device selected its microphone or its own
+speaker audio. **Select microphone capture on the sending/working phone.**
+Do not send mixed playback to the receiver and expect it to become a safe mic.
 
-## Bluetooth and scope
+Connection detection uses the private receiver mix's playback START/STOP activity,
+not a network-socket hook. Disconnect/reconnect timing and behavior during ongoing
+recording/calls still require validation; they are not guaranteed by this build.
+Explicit app-selected/Bluetooth/SCO routes are outside the tested scope.
 
-Connecting Bluetooth earbuds for playback does not itself force the recording
-input to their mic; the user's successful test retained the phone mic.
+### Required app setting on mido
 
-This module fixes the built-in recording path. It does **not** disable Bluetooth
-or override every app's explicit microphone choice. An app requesting the
-Bluetooth hands-free/SCO mic, or a Bluetooth-routed call, may still use that mic.
-Globally forcing those cases is a different, unverified policy change and is
-intentionally not included. Stereo/dual-mic paths outside `handset-mic` are also
-left untouched. The earpiece hardware fault is not repaired.
+AudioRelay → **Settings → Exclusive audio → Deactivated (Play during phone calls)**.
+Keep the received stream's volume unmuted. This avoids the interruption that
+previously stopped usable audio when Gboard requested exclusive audio focus.
+See the [AudioRelay FAQ](https://docs.audiorelay.net/faq). No app preferences,
+permissions, assistant roles or focus policies are modified by the module.
 
-## Install
+## Overhead and implementation
 
-1. Download the ZIP from [Releases](https://github.com/khanra17/mido-internal-mic-fix/releases).
-2. Flash it in KernelSU Manager.
-3. Reboot.
-4. Test a phone-mic recording and Gboard, then repeat with Bluetooth media connected.
+No LSPosed/Xposed, injected libraries, APK, Java/Dex daemon, framework/app hooks,
+or blanket microphone-priority overrides are included in the native design.
 
-Do not flash this ZIP in recovery. Disable other modules that replace this mixer
-file before installation. Do not add this module on unrelated Redmi models.
+The C++ daemon registers standard privileged audio policies and waits for Binder
+activity callbacks. Its main loop sleeps in `poll()` until an event or termination
+signal; there is no 500 ms activity polling, permanent shell supervisor, or dumpsys
+loop. The shell only performs bounded startup work and then `exec`s the daemon.
+A single startup checksum subprocess verifies the exact supported private ABI.
 
-## Uninstall
+PCM remains inside audioserver's native software patch (`PatchRecord`/`PatchTrack`).
+The controller does not run an app `AudioRecord`, copy/resample PCM itself, or save
+voice samples. The current stripped binary is about **25 KiB** and reuses platform
+libraries rather than bundling another C++ runtime. **RAM/CPU/battery measurements
+are pending; no zero-overhead or battery-life claim is made.**
 
-Disable or remove the module in KernelSU Manager and reboot. The original vendor
-file is untouched; no microphone preferences or Bluetooth settings need restoring.
-If audio fails, use KernelSU safe mode to disable the module and reboot.
+Private Android 10 Binder/audio APIs are ROM-specific. The daemon verifies the
+framework and audio-library SHA-256 values before issuing Binder calls; an unknown
+ABI leaves the original mic repair alone. Android's audio service owns each policy
+and can remove it on callback-Binder death. Graceful cleanup explicitly removes
+its input, patch and policies. Crash/fallback behavior still needs device tests.
 
-## Build
+## Validation status
+
+- Original mixer fix: tested on qassa `v2.4_beta_1.s`, Android 10, KernelSU 3.1.0.
+- Temporary Java **controller with native PCM transport**: remote Gboard typing
+  confirmed after private-input availability and AudioRelay-focus corrections.
+  Those Java files were routing diagnostics, **not hooks**, and are not packaged.
+- C++ controller: builds; policy registration and source START callback observed.
+- During the C++ capture-only test, `system_server` crashed in ART/JIT garbage
+  collection. The controller detected service death and cleaned up. The stack
+  does **not** establish whether this was caused by the test. Investigation paused
+  live injection; no KernelSU update was installed.
+- C++ remote typing, Telegram, ongoing-recording disconnect/reconnect, simultaneous
+  outgoing streaming, latency, idle overhead and first-flash boot behavior: **pending**.
+
+A downloadable remote-input release will only be published after applicable tests
+pass. See [docs/VALIDATION.md](docs/VALIDATION.md).
+
+## Installation / rollback
+
+Use the supported v1.0.0 ZIP in KernelSU Manager for the original repair; reboot
+and test built-in recording/Gboard. Do not flash in recovery or on unrelated devices.
+Disable competing mixer-file modules. Disabling/removing this module and rebooting
+restores untouched vendor files. KernelSU safe mode can disable a broken module.
+Bluetooth media does not itself require its mic, but apps explicitly requesting
+Bluetooth hands-free/SCO may still use that route. The earpiece hardware fault is
+not repaired. This is a userspace KernelSU module, **not a replacement kernel image**.
+
+## Build the development ZIP
+
+Python, POSIX `awk`, and Android NDK **r27d / 27.3.13750724** are required:
 
 ```sh
+python tools/build_native.py --ndk /path/to/android-ndk-r27d
 python -m unittest discover -s tests -v
 python tools/build.py
 ```
 
-The builder creates a deterministic release ZIP and SHA-256 file in `dist/`.
-Tests additionally require POSIX `awk`; the Android installer uses KernelSU's
-bundled BusyBox. No Android SDK, NDK, JDK or native build is needed.
+The builder fetches only necessary headers from pinned Android 10 AOSP sources.
+Link-only stubs contain exported symbol names, **not ROM implementations**. Neither
+stubs, private headers, ROM libraries, prototype logs nor audio samples enter the
+ZIP. Generated dependencies/binaries live in ignored `build/` and `bin/` folders.
+The packager preserves ELF bytes and creates a deterministic ZIP + SHA-256 file
+under `dist/`. Shell syntax and host tests do not replace on-device validation.
 
 ## License
 
-Apache-2.0 for this project. The generated vendor XML retains its original
-The Linux Foundation BSD notice; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Apache-2.0. The generated vendor XML retains its original The Linux Foundation
+BSD notice; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Build-only AOSP
+headers retain their upstream notices; they are not shipped with the module.
