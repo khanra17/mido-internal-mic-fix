@@ -49,6 +49,16 @@ No more unverified Binder transactions or global service restarts during testing
    stable release. Rc1 already enables autostart at the user's request; it is not
    evidence of passed native runtime tests.
 
+## First installed rc1 result
+
+User confirmed both disconnected upper-mic and connected remote Gboard input after
+flashing/rebooting rc1. Full-duplex Apps-server mode echoed the incoming stream;
+stopping the server coincided with a new system_server Binder/wake-lock crash.
+The controller exited on service death; remote routing no longer reactivates by
+client reconnection alone. **Do not use simultaneous Apps server/client yet.**
+See [issues/rc1-post-install.md](issues/rc1-post-install.md) for evidence and limits.
+Telegram and robust recovery remain pending; no crash-causation claim is made.
+
 ## Rc1 preparation
 
 - Removed all our temporary scripts, JARs, binaries, log directory and native lock
