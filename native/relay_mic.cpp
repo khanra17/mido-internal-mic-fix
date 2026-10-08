@@ -2,9 +2,11 @@
 // Native control plane only: all PCM stays inside audioserver's PatchRecord/Track.
 #include "audio_system_api29.h"
 #include "abi_guard.h"
+#include "abi_self_test.h"
 #include <binder/Binder.h>
 #include <binder/IServiceManager.h>
 #include <binder/Parcel.h>
+#include "abi_layouts.h"
 #include <binder/ProcessState.h>
 #include <utils/String16.h>
 #include <utils/String8.h>
@@ -34,7 +36,8 @@ constexpr int kLoopBackOnly = 2; // NOT LOOP_BACK_AND_RENDER (no speaker copy).
 const String16 kServiceToken("android.media.IAudioService");
 const String16 kCallbackToken("android.media.audiopolicy.IAudioPolicyCallback");
 std::atomic<int> desiredState{0};
-volatile sig_atomic_t stopping = 0, armed = 1;
+std::atomic<int> stopping{0}, armed{1};
+static_assert(std::atomic<int>::is_always_lock_free, "signal flags must be lock-free");
 int wakeFd = -1;
 
 void wake() {
@@ -43,14 +46,14 @@ void wake() {
 }
 void signalHandler(int signal) {
     const int saved = errno;
-    if (signal == SIGUSR1) armed = 1;
-    else stopping = 1;
+    if (signal == SIGUSR1) armed.store(1, std::memory_order_relaxed);
+    else stopping.store(1, std::memory_order_relaxed);
     wake();
     errno = saved;
 }
 
 void audioError(status_t error) {
-    if (error == DEAD_OBJECT) { stopping = 1; wake(); }
+    if (error == DEAD_OBJECT) { stopping.store(2, std::memory_order_relaxed); wake(); }
 }
 int64_t monotonicMs() {
     timespec now{};
@@ -58,7 +61,9 @@ int64_t monotonicMs() {
     return static_cast<int64_t>(now.tv_sec) * 1000 + now.tv_nsec / 1000000;
 }
 class ServiceDeath final : public IBinder::DeathRecipient {
-    void binderDied(const wp<IBinder>&) override { stopping = 1; wake(); }
+    void binderDied(const wp<IBinder>&) override {
+        stopping.store(3, std::memory_order_relaxed); wake();
+    }
 };
 
 class PolicyCallback final : public BBinder {
@@ -75,7 +80,8 @@ protected:
         if (data.readInt32(&state) != NO_ERROR || (state != 0 && state != 1)) return BAD_VALUE;
         if (source_) {
             // This callback belongs to one source policy/mix only. No app/UID polling.
-            fprintf(stderr, "SOURCE_ACTIVITY address=%s state=%d\n", String8(registration).c_str(), state);
+            fprintf(stderr, "SOURCE_ACTIVITY monoMs=%lld address=%s state=%d\n",
+                    static_cast<long long>(monotonicMs()), String8(registration).c_str(), state);
             desiredState.store(state, std::memory_order_release);
             wake();
         }
@@ -84,6 +90,11 @@ protected:
 private:
     bool source_;
 };
+
+static_assert(sizeof(PolicyCallback) == 48 && alignof(PolicyCallback) == 8,
+              "callback layout mismatch");
+static_assert(sizeof(ServiceDeath) == 24 && alignof(ServiceDeath) == 8,
+              "death callback layout mismatch");
 
 struct Policy {
     sp<PolicyCallback> callback;
@@ -311,12 +322,13 @@ public:
 
 int main(int argc, char** argv) {
     setvbuf(stderr, nullptr, _IOLBF, 0);
-    bool captureOnly = false;
+    bool captureOnly = false, selfTest = false;
     int uid = -1;
     int timeoutSeconds = 0;
     const char* lockPath = "/data/local/tmp/mido-relay-native.lock";
     for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--capture-only") == 0) captureOnly = true;
+        if (strcmp(argv[i], "--abi-self-test") == 0) selfTest = true;
+        else if (strcmp(argv[i], "--capture-only") == 0) captureOnly = true;
         else if (strcmp(argv[i], "--uid") == 0 && ++i < argc) uid = atoi(argv[i]);
         else if (strcmp(argv[i], "--lock") == 0 && ++i < argc) lockPath = argv[i];
         else if (strcmp(argv[i], "--timeout") == 0 && ++i < argc) timeoutSeconds = atoi(argv[i]);
@@ -326,16 +338,19 @@ int main(int argc, char** argv) {
     __system_property_get("ro.product.device", property);
     if (strcmp(property, "mido") != 0) return 2;
     __system_property_get("ro.build.version.sdk", property);
-    if (strcmp(property, "29") != 0 || getuid() != 0 || uid < 10000) return 2;
+    if (strcmp(property, "29") != 0 || getuid() != 0 || (!selfTest && uid < 10000)) return 2;
     if (!verifiedAudioAbi()) {
         fprintf(stderr, "UNSUPPORTED_AUDIO_ABI: leave repaired upper mic selected\n");
         return 2;
     }
+    if (selfTest) _exit(abiSelfTest());
+    // Refuse control-plane activation even if a layout-only probe was skipped.
+    if (abiSelfTest() != 0) _exit(2);
     const int lock = open(lockPath, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (lock < 0 || flock(lock, LOCK_EX | LOCK_NB) != 0) return 3;
     wakeFd = eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
     if (wakeFd < 0) return 3;
-    armed = !captureOnly;
+    armed.store(!captureOnly, std::memory_order_relaxed);
     struct sigaction action{};
     action.sa_handler = signalHandler;
     sigemptyset(&action.sa_mask);
@@ -344,17 +359,20 @@ int main(int argc, char** argv) {
     // ongoing dumpsys/package queries, PCM copying, or periodic activity polling.
     ProcessState::self()->startThreadPool();
     Bridge bridge;
+    fprintf(stderr, "START pid=%d monoMs=%lld uid=%d captureOnly=%d\n", getpid(),
+            static_cast<long long>(monotonicMs()), uid, captureOnly);
     status_t status = bridge.start(uid, captureOnly);
     bool active = false, remote = false;
     const int64_t deadline = timeoutSeconds > 0 ? monotonicMs() + timeoutSeconds * 1000LL : 0;
-    while (status == NO_ERROR && !stopping && (!deadline || monotonicMs() < deadline)) {
+    while (status == NO_ERROR && !stopping.load(std::memory_order_relaxed) &&
+           (!deadline || monotonicMs() < deadline)) {
         const bool desired = desiredState.load(std::memory_order_acquire) == 1;
-        const bool wantRemote = armed != 0;
+        const bool wantRemote = armed.load(std::memory_order_relaxed) != 0;
         if (desired && (!active || remote != wantRemote)) {
             status = bridge.route(wantRemote);
             active = status == NO_ERROR; remote = wantRemote;
         } else if (!desired && active) { status = bridge.fallback(); active = false; }
-        if (status != NO_ERROR || stopping) break;
+        if (status != NO_ERROR || stopping.load(std::memory_order_relaxed)) break;
         pollfd event{wakeFd, POLLIN, 0};
         const int waitMs = deadline ? static_cast<int>(deadline - monotonicMs()) : -1;
         if (waitMs <= 0 && deadline) break;
@@ -363,6 +381,8 @@ int main(int argc, char** argv) {
         while (read(wakeFd, &count, sizeof(count)) == sizeof(count)) {}
     }
     if (status != NO_ERROR) fprintf(stderr, "ERROR status=%d; restoring upper mic\n", status);
+    fprintf(stderr, "STOP monoMs=%lld reason=%d status=%d\n",
+            static_cast<long long>(monotonicMs()), stopping.load(std::memory_order_relaxed), status);
     const status_t cleanupStatus = bridge.cleanup();
     if (status == NO_ERROR) status = cleanupStatus;
     // Do not destroy Binder globals under still-running Binder pool threads.

@@ -45,7 +45,8 @@
     "_ZTv0_n24_N7android7BBinderD0Ev": "T",
     "_ZTv0_n24_N7android7BBinderD1Ev": "T",
     "_ZTv0_n24_N7android7IBinderD0Ev": "T",
-    "_ZTv0_n24_N7android7IBinderD1Ev": "T"
+    "_ZTv0_n24_N7android7IBinderD1Ev": "T",
+    "_ZNK7android6Parcel15setDataPositionEm": "T"
   },
   "libc++.so": {
     "_ZdlPv": "W",

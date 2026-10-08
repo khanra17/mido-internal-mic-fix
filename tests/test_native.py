@@ -35,6 +35,27 @@ class NativeSafetyTests(unittest.TestCase):
         self.assertIn('kRegister = 72', source)
         self.assertIn('kUnregister = 74', source)
 
+    def test_verified_layouts_and_local_self_test(self):
+        source = (ROOT / 'native/relay_mic.cpp').read_text()
+        layouts = (ROOT / 'native/abi_layouts.h').read_text()
+        probe = (ROOT / 'native/abi_self_test.h').read_text()
+        self.assertIn('sizeof(Parcel) == 120', layouts)
+        self.assertIn('sizeof(audio_port) == 1308', layouts)
+        self.assertIn('sizeof(audio_patch) == 6924', layouts)
+        self.assertLess(source.index('if (abiSelfTest() != 0)'),
+                        source.index('ProcessState::self()->startThreadPool()'))
+        self.assertIn('parcel->~Parcel()', probe)
+        self.assertIn('frame.before == marker && frame.after == marker', probe)
+        self.assertNotIn('transact(', probe)
+
+    def test_callback_and_signal_flags_are_lock_free_atomics(self):
+        source = (ROOT / 'native/relay_mic.cpp').read_text()
+        self.assertIn('std::atomic<int> stopping{0}, armed{1}', source)
+        self.assertIn('std::atomic<int>::is_always_lock_free', source)
+        self.assertNotIn('volatile sig_atomic_t stopping', source)
+        self.assertIn('stopping.load(std::memory_order_relaxed)', source)
+        self.assertIn('STOP monoMs=', source)
+
     def test_link_manifest_has_no_implementation(self):
         manifest = json.loads((ROOT / 'native/abi-symbols.json').read_text())
         self.assertEqual(set(manifest), {'libaudioclient.so', 'libbinder.so',
