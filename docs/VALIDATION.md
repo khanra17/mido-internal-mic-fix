@@ -33,8 +33,12 @@ No more unverified Binder transactions or global service restarts during testing
 
 ## Required on-device checks before stable promotion
 
-1. User installs rc1 in KernelSU and reboots with rollback available. Test original
-   upper mic with AudioRelay disconnected; verify startup log and guards.
+These apply to a future candidate AFTER crash isolation. Do not install withdrawn
+rc1. Receiver-only baseline and the prepared (not yet run) policy-only diagnostic
+are documented in [issues/policy-only-isolation.md](issues/policy-only-isolation.md).
+
+1. User installs a validated candidate in KernelSU and reboots with rollback
+   available. Test upper mic with AudioRelay disconnected; verify startup guards.
 2. Connect a proven working-phone MICROPHONE stream. Rc1 enables the private input
    when the receiver mix starts; prove Gboard listens to the working phone, not mido,
    and verify actual addressed input, sustained PCM and unsilenced state.
@@ -47,8 +51,8 @@ No more unverified Binder transactions or global service restarts during testing
 7. Concurrent mido playback → working phone stream: no caller/playback-to-mic feedback.
 8. Measure idle RAM/CPU/wakeups and active transport; compare latency/buffering.
 9. Only after these checks: review findings/source/build, rerun CI and promote a
-   stable release. Rc1 already enables autostart at the user's request; it is not
-   evidence of passed native runtime tests.
+   stable release. Keep native autostart disabled until crash validation passes;
+   rc1's historical autostart exception was not proof of runtime stability.
 
 ## First installed rc1 result
 

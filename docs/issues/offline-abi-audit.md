@@ -64,17 +64,16 @@ values, UID counters or traffic contents were collected.
 
 ## Next distinguishing check
 
-The previous no-crash baseline exercised AudioRelay's Apps SERVER without native
-routing. It did NOT exercise the incoming RECEIVER without the controller. That
-missing comparison should precede another native trial: with the controller still
-absent, Apps server and Bluetooth off, receive the working phone's microphone,
-then disconnect/reconnect. User coordination and saved work are necessary because
-the ROM may still crash. Incoming audio will be normal playback, not substituted
-microphone input.
+The earlier no-crash baseline exercised AudioRelay's Apps SERVER without native
+routing. The user subsequently rebooted and performed the missing RECEIVER-only
+comparison, including multiple disconnects/reconnects, without a crash. Read-only
+inspection confirmed native control stayed disabled and no new system_server
+tombstone appeared. The reboot changed process state, so this is not an otherwise
+identical comparison. See [policy-only isolation](policy-only-isolation.md) for
+results and the next prepared diagnostic.
 
-If it reproduces, the controller is not necessary for at least that failure. A
-pass would not establish controller causation; policy registration and patch
-transport would then need separate bounded, coordinated tests. Do not add a
+The negative baseline does not establish controller causation. Policy registration
+and patch transport now need separate bounded, coordinated tests. Do not add a
 restart supervisor or change assistant roles/privacy/SELinux/system libraries
 in place of identifying the producer.
 

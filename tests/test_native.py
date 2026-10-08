@@ -56,6 +56,42 @@ class NativeSafetyTests(unittest.TestCase):
         self.assertIn('stopping.load(std::memory_order_relaxed)', source)
         self.assertIn('STOP monoMs=', source)
 
+    def test_policy_only_has_a_required_bounded_timeout(self):
+        source = (ROOT / 'native/relay_mic.cpp').read_text()
+        self.assertIn('strcmp(argv[i], "--policy-only")', source)
+        begin = source.index('    if (policyOnly) {')
+        end = source.index('    char property[PROP_VALUE_MAX]', begin)
+        gate = source[begin:end]
+        self.assertIn('timeoutSeconds <= 0 || timeoutSeconds > 1800', gate)
+        self.assertIn('return 2;', gate)
+        self.assertIn('captureOnly = true;', gate)
+        self.assertNotIn('--policy-only', (ROOT / 'service.sh').read_text())
+
+    def test_cli_rejects_malformed_bounds_and_missing_values(self):
+        source = (ROOT / 'native/relay_mic.cpp').read_text()
+        self.assertNotIn('atoi(', source)
+        self.assertIn("*p < '0' || *p > '9'", source)
+        self.assertIn('parsed > INT_MAX', source)
+        self.assertIn('++i >= argc || !nonnegativeInt(argv[i], uid)', source)
+        self.assertIn('++i >= argc || !nonnegativeInt(argv[i], timeoutSeconds)', source)
+        self.assertLess(source.index('const int64_t deadline ='),
+                        source.index('status_t status = bridge.start(uid, captureOnly)'))
+
+    def test_policy_only_blocks_transport_and_signal_arming(self):
+        source = (ROOT / 'native/relay_mic.cpp').read_text()
+        route = source.split('    status_t route(bool remoteMicrophone) {', 1)[1]
+        route = route.split('    status_t fallback()', 1)[0]
+        guard = route.split('        if (remoteMicrophone &&', 1)[0]
+        self.assertIn('if (policyOnly_)', guard)
+        self.assertIn('return NO_ERROR;', guard)
+        self.assertNotIn('registerPolicy(', guard)
+        self.assertNotIn('createAudioPatch(', guard)
+        self.assertNotIn('connect(', guard)
+        self.assertIn('const bool policyOnly_;', source)
+        self.assertIn('Bridge bridge(policyOnly)', source)
+        self.assertIn('!policyOnly && armed.load(std::memory_order_relaxed)', source)
+        self.assertIn('if (captureOnly || policyOnly_)', source)
+
     def test_link_manifest_has_no_implementation(self):
         manifest = json.loads((ROOT / 'native/abi-symbols.json').read_text())
         self.assertEqual(set(manifest), {'libaudioclient.so', 'libbinder.so',

@@ -12,6 +12,7 @@
 #include <utils/String8.h>
 #include <atomic>
 #include <cerrno>
+#include <climits>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -54,6 +55,18 @@ void signalHandler(int signal) {
 
 void audioError(status_t error) {
     if (error == DEAD_OBJECT) { stopping.store(2, std::memory_order_relaxed); wake(); }
+}
+bool nonnegativeInt(const char* text, int& value) {
+    if (!text[0]) return false;
+    // Reject signs, spaces, suffixes and overflow rather than silently accepting
+    // malformed diagnostic bounds. Standard libc only; no private Binder ABI.
+    for (const char* p = text; *p; ++p) if (*p < '0' || *p > '9') return false;
+    char* end = nullptr;
+    errno = 0;
+    const long parsed = strtol(text, &end, 10);
+    if (errno != 0 || *end || parsed > INT_MAX) return false;
+    value = static_cast<int>(parsed);
+    return true;
 }
 int64_t monotonicMs() {
     timespec now{};
@@ -212,6 +225,7 @@ audio_port_config config(const audio_port& port, bool input) {
 
 class Bridge {
 public:
+    explicit Bridge(bool policyOnly = false) : policyOnly_(policyOnly) {}
     sp<IBinder> service;
     sp<ServiceDeath> serviceDeath;
     Policy source, microphone, dummy;
@@ -229,19 +243,26 @@ public:
         status = connect(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, source.address, true);
         if (status != NO_ERROR) return status;
         sourceConnected = true;
-        if (captureOnly) {
+        if (captureOnly || policyOnly_) {
             status = registerPolicy(service, dummy, 65534, false);
             if (status != NO_ERROR) return status;
             status = connect(AUDIO_DEVICE_OUT_REMOTE_SUBMIX, dummy.address, true);
             if (status != NO_ERROR) return status;
             dummyConnected = true;
         }
-        fprintf(stderr, "READY source=%s captureOnly=%d; reconnect an already-playing client\n",
-                source.address.c_str(), captureOnly);
+        fprintf(stderr, "READY source=%s captureOnly=%d policyOnly=%d; reconnect an already-playing client\n",
+                source.address.c_str(), captureOnly, policyOnly_);
         return NO_ERROR;
     }
 
     status_t route(bool remoteMicrophone) {
+        // Diagnostic isolation: exercise the same source/dummy registrations,
+        // output connections and callbacks, but NEVER create a PCM bridge or
+        // virtual mic. This guard also blocks SIGUSR1 from enabling transport.
+        if (policyOnly_) {
+            fprintf(stderr, "POLICY_ONLY_ACTIVITY no_controller_patch_or_virtual_mic\n");
+            return NO_ERROR;
+        }
         if (remoteMicrophone && microphoneConnected) return NO_ERROR;
         Policy* sink = &dummy;
         status_t status = NO_ERROR;
@@ -317,22 +338,38 @@ public:
         else fprintf(stderr, "CLEANUP_INCOMPLETE status=%d; Binder death will remove owned policies\n", result);
         return result;
     }
+private:
+    const bool policyOnly_;
 };
 }
 
 int main(int argc, char** argv) {
     setvbuf(stderr, nullptr, _IOLBF, 0);
-    bool captureOnly = false, selfTest = false;
+    bool captureOnly = false, selfTest = false, policyOnly = false;
     int uid = -1;
     int timeoutSeconds = 0;
     const char* lockPath = "/data/local/tmp/mido-relay-native.lock";
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--abi-self-test") == 0) selfTest = true;
         else if (strcmp(argv[i], "--capture-only") == 0) captureOnly = true;
-        else if (strcmp(argv[i], "--uid") == 0 && ++i < argc) uid = atoi(argv[i]);
-        else if (strcmp(argv[i], "--lock") == 0 && ++i < argc) lockPath = argv[i];
-        else if (strcmp(argv[i], "--timeout") == 0 && ++i < argc) timeoutSeconds = atoi(argv[i]);
-        else { fprintf(stderr, "Usage: %s --uid APP_UID [--capture-only] [--lock PATH] [--timeout SECONDS]\n", argv[0]); return 2; }
+        else if (strcmp(argv[i], "--policy-only") == 0) policyOnly = true;
+        else if (strcmp(argv[i], "--uid") == 0) {
+            if (++i >= argc || !nonnegativeInt(argv[i], uid)) return 2;
+        } else if (strcmp(argv[i], "--lock") == 0) {
+            if (++i >= argc || !argv[i][0]) return 2;
+            lockPath = argv[i];
+        } else if (strcmp(argv[i], "--timeout") == 0) {
+            if (++i >= argc || !nonnegativeInt(argv[i], timeoutSeconds)) return 2;
+        }
+        else { fprintf(stderr, "Usage: %s --uid APP_UID [--capture-only | --policy-only] [--lock PATH] [--timeout SECONDS]\n", argv[0]); return 2; }
+    }
+    if (policyOnly) {
+        // This is a bounded investigation mode, not a new boot/runtime option.
+        if (selfTest || timeoutSeconds <= 0 || timeoutSeconds > 1800) {
+            fprintf(stderr, "POLICY_ONLY_REQUIRES_TIMEOUT_1_TO_1800_SECONDS\n");
+            return 2;
+        }
+        captureOnly = true;
     }
     char property[PROP_VALUE_MAX]{};
     __system_property_get("ro.product.device", property);
@@ -358,16 +395,16 @@ int main(int argc, char** argv) {
     // Binder callbacks wake poll(); no Java VM, focus manipulation, app recorder,
     // ongoing dumpsys/package queries, PCM copying, or periodic activity polling.
     ProcessState::self()->startThreadPool();
-    Bridge bridge;
-    fprintf(stderr, "START pid=%d monoMs=%lld uid=%d captureOnly=%d\n", getpid(),
-            static_cast<long long>(monotonicMs()), uid, captureOnly);
+    const int64_t deadline = timeoutSeconds > 0 ? monotonicMs() + timeoutSeconds * 1000LL : 0;
+    Bridge bridge(policyOnly);
+    fprintf(stderr, "START pid=%d monoMs=%lld uid=%d captureOnly=%d policyOnly=%d\n", getpid(),
+            static_cast<long long>(monotonicMs()), uid, captureOnly, policyOnly);
     status_t status = bridge.start(uid, captureOnly);
     bool active = false, remote = false;
-    const int64_t deadline = timeoutSeconds > 0 ? monotonicMs() + timeoutSeconds * 1000LL : 0;
     while (status == NO_ERROR && !stopping.load(std::memory_order_relaxed) &&
            (!deadline || monotonicMs() < deadline)) {
         const bool desired = desiredState.load(std::memory_order_acquire) == 1;
-        const bool wantRemote = armed.load(std::memory_order_relaxed) != 0;
+        const bool wantRemote = !policyOnly && armed.load(std::memory_order_relaxed) != 0;
         if (desired && (!active || remote != wantRemote)) {
             status = bridge.route(wantRemote);
             active = status == NO_ERROR; remote = wantRemote;
