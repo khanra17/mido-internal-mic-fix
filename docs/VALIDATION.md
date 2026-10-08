@@ -1,9 +1,10 @@
 # AudioRelay native-controller release gate
 
-**v2.0.0-rc1 is an experimental pre-release with `RELAY_ENABLED=1`, explicitly
-requested by the user for first-install/reboot/device testing.** This overrides
-only the earlier publication/autostart gate, not the remaining validation results.
-The stable v1.0.0 release is unchanged. No module was installed remotely by us.
+**Rc1 was withdrawn after another system_server crash during the hardened native
+capture-only retry.** Development and installed-device autostart are now disabled
+(`RELAY_ENABLED=0`). The original upper-mic repair remains enabled. Stable v1.0.0
+is unchanged. No more live native trials until the failure is better isolated.
+See [issues/capture-only-crash.md](issues/capture-only-crash.md).
 
 ## Confirmed
 

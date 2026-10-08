@@ -3,11 +3,10 @@
 KernelSU microphone repair for the tested Redmi Note 4 (`mido`) Android 10
 vendor layout, with an **experimental native AudioRelay-input controller**.
 
-> **v2.0.0-rc1 is a pre-release for user-requested install/reboot testing.** Native
-> autostart is enabled (`RELAY_ENABLED=1`). An earlier test coincided with an Android
-> `system_server` ART/JIT crash; the cause is unresolved. Native remote delivery,
-> Telegram and disconnect fallback are not validated. Have KernelSU safe mode /
-> rollback available. The stable [v1.0.0 release](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v1.0.0)
+> **Rc1 is withdrawn after repeated Android system_server crashes.** Native
+> autostart is disabled (`RELAY_ENABLED=0`); do not enable it. The latest hardened
+> capture-only retry also crashed, without microphone substitution. Investigation
+> is ongoing. Stable [v1.0.0](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v1.0.0)
 > remains available for upper-mic-only use.
 
 ## Original microphone repair—preserved
@@ -83,29 +82,28 @@ its input, patch and policies. Crash/fallback behavior still needs device tests.
 - Temporary Java **controller with native PCM transport**: remote Gboard typing
   confirmed after private-input availability and AudioRelay-focus corrections.
   Those Java files were routing diagnostics, **not hooks**, and are not packaged.
-- C++ controller: builds; policy registration and source START callback observed.
-- During the C++ capture-only test, `system_server` crashed in ART/JIT garbage
-  collection. The controller detected service death and cleaned up. The stack
-  does **not** establish whether this was caused by the test. Investigation paused
-  live injection; no KernelSU update was installed.
-- C++ remote typing, Telegram, ongoing-recording disconnect/reconnect, simultaneous
-  outgoing streaming, latency, idle overhead and first-flash boot behavior: **pending**.
+- Installed C++ rc1: user confirmed upper-mic and remote Gboard input after reboot.
+- Native trials produced three system_server crashes: ART GC, Binder/wake-lock
+  cleanup, and network statistics. The latest occurred during capture-only mode
+  after a receiver reconnect. Exact causation remains unresolved.
+- Server-only trial without the controller did not crash. Thread-safety hardening
+  and ABI checks did not resolve the native capture-only failure.
+- Simultaneous outgoing Apps-server streaming echoed the incoming mic; unsupported.
+- Telegram, robust fallback/recovery, Bluetooth priority, latency and resource use
+  remain unverified. Live native tests are paused; rc1 downloads withdrawn.
 
-At the user's explicit request, rc1 is downloadable for those remaining device
-checks; this does **not** count them as passed. Stable release promotion remains
-blocked. See [docs/VALIDATION.md](docs/VALIDATION.md).
+See [docs/VALIDATION.md](docs/VALIDATION.md) and
+[crash evidence](docs/issues/capture-only-crash.md).
 
 ## Installation / rollback
 
-1. Download the ZIP + checksum from [v2.0.0-rc1](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v2.0.0-rc1).
-2. Install in KernelSU Manager and reboot. **An in-place update is supported**;
-   uninstalling the old module is unnecessary because the module ID is unchanged.
-   If removing it first, reboot after removal, then install rc1 and reboot again.
-3. First test upper-mic input with AudioRelay disconnected. Then select microphone
-   capture on the working phone, connect mido's receiver and test remote input.
-   Reconnect once if AudioRelay was already playing before the daemon registered.
-4. Repeat Telegram, active-recording disconnect/reconnect, and outgoing streaming
-   tests one at a time. Report what works and what fails.
+Use stable [v1.0.0](https://github.com/khanra17/mido-internal-mic-fix/releases/tag/v1.0.0)
+for the original upper-mic repair. Install its ZIP through KernelSU Manager and
+reboot. Do not install rc1 or enable the development controller.
+
+For an existing rc1 installation, keep `RELAY_ENABLED=0` in the installed module's
+`relay.conf`. This preserves the original mixer repair without the native daemon.
+The test device has already been set to this safe state.
 
 Do not flash in recovery or on unrelated devices. Disable competing mixer-file
 modules. If Android/audio becomes unstable, **disable/remove rc1 in KernelSU and

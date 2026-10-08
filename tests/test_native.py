@@ -63,10 +63,10 @@ class NativeSafetyTests(unittest.TestCase):
         self.assertTrue(all(kind in 'TWDBRV' for symbols in manifest.values()
                             for kind in symbols.values()))
 
-    def test_experimental_autostart_is_explicit(self):
+    def test_native_autostart_is_safety_disabled(self):
         config = (ROOT / 'relay.conf').read_text()
-        self.assertIn('RELAY_ENABLED=1', config)
-        self.assertIn('EXPERIMENTAL', config)
+        self.assertIn('RELAY_ENABLED=0', config)
+        self.assertIn('system_server crashes', config)
         props = (ROOT / 'module.prop').read_text()
         self.assertIn('version=v2.0.0-rc1', props)
         self.assertIn('EXPERIMENTAL', props)
